@@ -1,0 +1,10 @@
+   .vs
+   __pycache__
+   venv
+   results
+   *.pyc
+   *.pyo
+   *.pyd
+   *.db
+   *.sqlite3
+   *.log
