@@ -36,16 +36,29 @@ def results():
     finally:
         session.close()
 
-@app.route('/10.1.75.0/24/scan', methods=['GET'])
+@app.route('/scan', methods=['POST'])
 def scan():
-    cidr= request.host.split(':')[1] if ':' in request.host else '80'
+    data = request.get_json()
+    cidr = data.get('cidr')
     if not cidr:
         return jsonify({"error": "CIDR value is required"}), 400
     try:
-        result = netsight.scan_host(cidr)
-        return jsonify(result)
+        # Use the new concurrent scanning function
+        results = netsight.scan_cidr_concurrent(cidr)
+        
+        # Format results into table structure
+        table_data = netsight.format_results_table(results)
+        
+        return jsonify({
+            "cidr": cidr,
+            "total_hosts": len(results),
+            "active_hosts": len([r for r in results if 'error' not in r]),
+            "table_data": table_data,
+            "raw_results": results,
+            "scan_time": datetime.datetime.utcnow().isoformat()
+        })
     except Exception as e:
-        print(e,"line")
+        print(f"Scan error: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
