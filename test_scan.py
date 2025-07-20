@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 import subprocess
 import json
-import datetime
-import ipaddress
-from netsight import scan_host, scan_cidr
+# Removed unused imports and fixed import errors
+from netsight.scan import scan_host, scan_cidr
 
 def test_single_ip():
     """Test scanning a single IP address"""

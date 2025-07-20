@@ -11,12 +11,19 @@ from typing import Dict, List, Any
 
 
 def rustscan_cidr(cidr):
-    """Run RustScan to discover open ports for a CIDR range"""
-    print(f"Starting RustScan for CIDR: {cidr}")
+    """Run RustScan to discover open ports for a CIDR range or single IP"""
+    print(f"Starting RustScan for CIDR or IP: {cidr}")
     try:
         result = subprocess.run(
-            ['rustscan', '-a', cidr, '--ulimit', '5000', '-g'],
-            capture_output=True, text=True, timeout=300  # 300 seconds (5 minutes)
+            [
+                'rustscan',
+                '-a', cidr,
+                '--ulimit', '5000',
+                '-g',
+                '--range', '1-10000',
+                '-n', '1000'
+            ],
+            capture_output=True, text=True, timeout=300
         )
         print(f"RustScan completed for {cidr}. Return code: {result.returncode}")
         if result.stderr:
@@ -58,7 +65,7 @@ def rustscan_cidr(cidr):
         raise
 
 def nmap_services(ip, ports):
-    """Run Nmap to detect services and OS for specific IP and ports"""
+    """Run Nmap to detect services for specific IP and ports (no OS detection)"""
     if not ports:
         return {'services': [], 'os_info': None}
     
@@ -66,9 +73,9 @@ def nmap_services(ip, ports):
     print(f"Starting Nmap scan for IP: {ip}, ports: {port_str}")
     
     try:
-        # Run Nmap with service detection and OS detection
+        # Run Nmap with service detection only (no -O for OS detection)
         result = subprocess.run(
-            ['nmap', '-sV', '-O', '-p', port_str, ip, '-oX', '-'],
+            ['nmap', '-sV', '-p', port_str, ip, '-oX', '-'],
             capture_output=True, text=True, timeout=120  # 2 minutes timeout for nmap
         )
         print(f"Nmap completed for {ip}. Return code: {result.returncode}")
