@@ -8,10 +8,11 @@ import concurrent.futures
 import xml.etree.ElementTree as ET
 import threading
 from typing import Dict, List, Any
+import re
 
 
 def rustscan_cidr(cidr):
-    """Run RustScan to discover open ports for a CIDR range or single IP"""
+    """Run RustScan to discover open ports and services for a CIDR range or single IP"""
     print(f"Starting RustScan for CIDR or IP: {cidr}")
     try:
         result = subprocess.run(
@@ -19,43 +20,35 @@ def rustscan_cidr(cidr):
                 'rustscan',
                 '-a', cidr,
                 '--ulimit', '5000',
-                '-g',
-                '--range', '1-10000',
-                '-n', '1000'
+                '--', '-sV'
             ],
             capture_output=True, text=True, timeout=300
         )
         print(f"RustScan completed for {cidr}. Return code: {result.returncode}")
-        if result.stderr:
-            print(f"RustScan stderr: {result.stderr}")
-        
-        # Parse RustScan output to extract IP -> [ports] format
-        lines = result.stdout.strip().split('\n')
+        print("RustScan STDOUT:", repr(result.stdout))
+        print("RustScan STDERR:", repr(result.stderr))
+
+        # Remove ANSI color codes
+        ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
+        clean_output = ansi_escape.sub('', result.stdout)
+
+        # Parse only lines like: Open 172.31.67.68:22
         ip_ports = {}
-        
-        for line in lines:
-            if ' -> ' in line:
-                # Format: "127.0.0.1 -> [22,3000,3001,3128,3306,33856,39357]"
-                parts = line.split(' -> ')
-                if len(parts) >= 2:
-                    ip = parts[0].strip()
-                    ports_str = parts[1].strip()
-                    # Remove brackets and split by comma
-                    if ports_str.startswith('[') and ports_str.endswith(']'):
-                        ports_str = ports_str[1:-1]  # Remove [ and ]
-                        if ports_str:
-                            ports = [p.strip() for p in ports_str.split(',') if p.strip()]
-                            ip_ports[ip] = ports
-            elif ':' in line and ' -> ' not in line:
-                # Fallback for IP:ports format
-                parts = line.split(':')
-                if len(parts) >= 2:
-                    ip = parts[0].strip()
-                    ports_str = parts[1].strip()
-                    if ports_str:
-                        ports = [p.strip() for p in ports_str.split(',') if p.strip()]
-                        ip_ports[ip] = ports
-        
+        for line in clean_output.splitlines():
+            line = line.strip()
+            if line.startswith("Open "):
+                # Example: Open 172.31.67.68:22
+                try:
+                    _, rest = line.split("Open ", 1)
+                    ip, port = rest.split(":")
+                    ip = ip.strip()
+                    port = port.strip()
+                    if ip not in ip_ports:
+                        ip_ports[ip] = []
+                    ip_ports[ip].append(port)
+                except Exception as e:
+                    print(f"Error parsing line: {line} ({e})")
+        print(f"Parsed RustScan ip_ports: {ip_ports}")
         return ip_ports
     except subprocess.TimeoutExpired:
         print(f"RustScan timed out for CIDR: {cidr}")
@@ -65,7 +58,7 @@ def rustscan_cidr(cidr):
         raise
 
 def nmap_services(ip, ports):
-    """Run Nmap to detect services for specific IP and ports (no OS detection)"""
+    """Run Nmap to detect services and OS for specific IP and ports"""
     if not ports:
         return {'services': [], 'os_info': None}
     
@@ -73,10 +66,11 @@ def nmap_services(ip, ports):
     print(f"Starting Nmap scan for IP: {ip}, ports: {port_str}")
     
     try:
-        # Run Nmap with service detection only (no -O for OS detection)
+        # Run Nmap with service detection AND OS detection (-O)
+        # Note: -O requires root privileges.
         result = subprocess.run(
-            ['nmap', '-sV', '-p', port_str, ip, '-oX', '-'],
-            capture_output=True, text=True, timeout=120  # 2 minutes timeout for nmap
+            ['sudo', 'nmap', '-sV', '-O', '-p', port_str, ip, '-oX', '-'],
+            capture_output=True, text=True, timeout=180 # 3 minutes timeout
         )
         print(f"Nmap completed for {ip}. Return code: {result.returncode}")
         if result.stderr:
@@ -129,6 +123,9 @@ def parse_nmap_xml(xml_output):
         print(f"Error parsing Nmap XML: {e}")
         return {'services': [], 'os_info': None}
 
+# This should be replaced with a persistent store in production!
+port_first_seen = {}
+
 def scan_host_concurrent(ip, ports, prev_port_times=None):
     """Scan a single host with concurrent port discovery and service detection"""
     now = datetime.datetime.utcnow().isoformat()
@@ -137,10 +134,12 @@ def scan_host_concurrent(ip, ports, prev_port_times=None):
     # Track port timing
     port_times = []
     for port in ports:
-        if port in prev_port_times:
-            opened_at = prev_port_times[port]['opened_at']
+        key = f"{ip}:{port}"
+        if key in port_first_seen:
+            opened_at = port_first_seen[key]
         else:
             opened_at = now
+            port_first_seen[key] = opened_at
         port_times.append({
             "port": port,
             "opened_at": opened_at,

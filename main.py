@@ -40,6 +40,7 @@ def results():
 def scan():
     data = request.get_json()
     cidr = data.get('cidr')
+    print(f"Received scan request for CIDR: {cidr}")
     if not cidr:
         return jsonify({"error": "CIDR value is required"}), 400
     try:

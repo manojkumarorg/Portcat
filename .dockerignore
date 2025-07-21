@@ -1,10 +1,36 @@
-   .vs
-   __pycache__
-   venv
-   results
-   *.pyc
-   *.pyo
-   *.pyd
-   *.db
-   *.sqlite3
-   *.log
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+
+# Python
+venv
+.venv
+__pycache__
+*.pyc
+*.egg-info
+
+# Node
+node_modules
+frontend/node_modules
+frontend/build
+npm-debug.log
+
+# IDE / OS
+.vscode
+.vs
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Other
+README.md
+results
+.env
