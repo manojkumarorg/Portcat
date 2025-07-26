@@ -1,6 +1,4 @@
 from flask import Flask, jsonify, request
-from db import SessionLocal
-from models import ScanResult
 import netsight
 import datetime
 import json
@@ -9,6 +7,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)  # This enables CORS for all routes
 
+# In-memory storage for scan results (replace with database in production)
+scan_results = []
 
 @app.route('/')
 def root():
@@ -20,48 +20,44 @@ def health_check():
 
 @app.route('/results')
 def results():
-    session = SessionLocal()
-    try:
-        scans = session.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
-        results = [
-            {
-                "id": s.id,
-                "ip": s.ip,
-                "result": s.result,
-                "created_at": s.created_at.isoformat()
-            }
-            for s in scans
-        ]
-        return jsonify(results)
-    finally:
-        session.close()
+    return jsonify(scan_results)
 
 @app.route('/scan', methods=['POST'])
 def scan():
     data = request.get_json()
-    cidr = data.get('cidr')
-    print(f"Received scan request for CIDR: {cidr}")
-    if not cidr:
-        return jsonify({"error": "CIDR value is required"}), 400
+    target = data.get('target')  # Changed from 'cidr' to 'target' for clarity
+    port_range = data.get('port_range')
+    
+    print(f"Received scan request for target: {target}, port_range: {port_range}")
+    if not target:
+        return jsonify({"error": "Target (IP or CIDR) is required"}), 400
+    
     try:
-        # Use the new concurrent scanning function
-        results = netsight.scan_cidr_concurrent(cidr)
+        # Run the scan using our optimized netsight module
+        scan_results_data = netsight.scan_cidr_or_ip(target, port_range)
         
-        # Format results into table structure
-        table_data = netsight.format_results_table(results)
+        # Store scan metadata
+        scan_result = {
+            "target": target,
+            "port_range": port_range,
+            "scan_time": datetime.datetime.utcnow().isoformat(),
+            "status": "completed",
+            "results": scan_results_data
+        }
+        scan_results.append(scan_result)
         
         return jsonify({
-            "cidr": cidr,
-            "total_hosts": len(results),
-            "active_hosts": len([r for r in results if 'error' not in r]),
-            "table_data": table_data,
-            "raw_results": results,
-            "scan_time": datetime.datetime.utcnow().isoformat()
+            "target": target,
+            "port_range": port_range,
+            "scan_time": datetime.datetime.utcnow().isoformat(),
+            "status": "completed",
+            "total_hosts": len(scan_results_data),
+            "hosts_with_open_ports": len([r for r in scan_results_data if r["is_alive"]]),
+            "results": scan_results_data
         })
     except Exception as e:
         print(f"Scan error: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
-    app.run(debug = True)
+    app.run(host='0.0.0.0', port=8000, debug=True)
