@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Network Scanner</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 20px;
+            background-color: #1a1a1a;
+            color: #00ff00;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #00ff00;
+            padding-bottom: 20px;
+        }
+        .controls {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        input, select {
+            padding: 8px;
+            border: 1px solid #00ff00;
+            background-color: #1a1a1a;
+            color: #00ff00;
+            border-radius: 5px;
+            width: 200px;
+        }
+        button {
+            background-color: #00ff00;
+            color: #000;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #00cc00;
+        }
+        button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+        .output {
+            background-color: #000;
+            border: 1px solid #00ff00;
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .status {
+            background-color: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .alive { color: #00ff00; }
+        .dead { color: #ff0000; }
+        .info { color: #ffff00; }
+        .error { color: #ff6666; }
+        .progress { color: #00ffff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Real-Time Network Scanner</h1>
+            <p>Watch scan results as they happen, one IP at a time!</p>
+        </div>
+
+        <div class="controls">
+            <div class="form-group">
+                <label for="target">Target:</label>
+                <input type="text" id="target" value="10.1.75.0/24" placeholder="192.168.1.0/24">
+            </div>
+            <div class="form-group">
+                <label for="ports">Ports:</label>
+                <input type="text" id="ports" value="22,80,443,8080" placeholder="22,80,443">
+            </div>
+            <div class="form-group">
+                <label for="mode">Mode:</label>
+                <select id="mode">
+                    <option value="quick">Quick (Recommended)</option>
+                    <option value="default">Default</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button onclick="startScan()" id="scanBtn">🚀 Start Scan</button>
+                <button onclick="clearOutput()" id="clearBtn">🗑️ Clear Output</button>
+                <button onclick="stopScan()" id="stopBtn" disabled>⏹️ Stop Scan</button>
+            </div>
+        </div>
+
+        <div class="status" id="status">
+            <strong>Status:</strong> Ready to scan
+        </div>
+
+        <div class="output" id="output">
+            Welcome to Real-Time Network Scanner!
+            
+            Enter your target subnet and click "Start Scan" to begin.
+            
+            You'll see results as each IP is scanned, just like in the CLI!
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let isScanning = false;
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'alive' ? 'alive' : 
+                           type === 'dead' ? 'dead' : 
+                           type === 'error' ? 'error' : 
+                           type === 'progress' ? 'progress' : 'info';
+            
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = `<strong>Status:</strong> ${message}`;
+        }
+
+        function startScan() {
+            if (isScanning) return;
+
+            const target = document.getElementById('target').value;
+            const ports = document.getElementById('ports').value;
+            const mode = document.getElementById('mode').value;
+
+            if (!target) {
+                alert('Please enter a target!');
+                return;
+            }
+
+            // Update UI
+            isScanning = true;
+            document.getElementById('scanBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            updateStatus('Starting scan...');
+            log(`Starting scan: ${target}`, 'info');
+            log(`Ports: ${ports}`, 'info');
+            log(`Mode: ${mode}`, 'info');
+            log('=' * 50, 'info');
+
+            // Start SSE connection
+            const url = '/scan-stream';
+            eventSource = new EventSource(url.replace('/scan-stream', '/scan-stream'));
+
+            // Send POST request to start scan
+            fetch('/scan-stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    target: target,
+                    port_range: ports,
+                    scan_mode: mode
+                })
+            }).then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                function readStream() {
+                    reader.read().then(({done, value}) => {
+                        if (done) {
+                            log('Scan completed!', 'info');
+                            updateStatus('Scan completed');
+                            isScanning = false;
+                            document.getElementById('scanBtn').disabled = false;
+                            document.getElementById('stopBtn').disabled = true;
+                            return;
+                        }
+
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        lines.forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.substring(6));
+                                    
+                                    if (data.type === 'output') {
+                                        // Parse the output line
+                                        const outputLine = data.line;
+                                        
+                                        if (outputLine.includes('✅ ALIVE:')) {
+                                            log(outputLine, 'alive');
+                                        } else if (outputLine.includes('❌ DEAD:')) {
+                                            log(outputLine, 'dead');
+                                        } else if (outputLine.includes('📈 Progress:')) {
+                                            log(outputLine, 'progress');
+                                        } else if (outputLine.includes('SCAN COMPLETE!')) {
+                                            log(outputLine, 'info');
+                                        } else {
+                                            log(outputLine, 'info');
+                                        }
+                                    } else if (data.type === 'complete') {
+                                        log(`Scan completed! Found ${data.alive_hosts} alive hosts out of ${data.total_hosts} total.`, 'info');
+                                    } else if (data.type === 'error') {
+                                        log(`Error: ${data.message}`, 'error');
+                                    }
+                                } catch (e) {
+                                    // Ignore parsing errors
+                                }
+                            }
+                        });
+
+                        readStream();
+                    });
+                }
+
+                readStream();
+            }).catch(error => {
+                log(`Error: ${error.message}`, 'error');
+                updateStatus('Error occurred');
+                isScanning = false;
+                document.getElementById('scanBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            });
+        }
+
+        function stopScan() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            isScanning = false;
+            document.getElementById('scanBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            updateStatus('Scan stopped');
+            log('Scan stopped by user', 'info');
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html> 

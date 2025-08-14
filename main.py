@@ -5,7 +5,8 @@ import json
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # This enables CORS for all routes
+# Configure CORS for development
+CORS(app)
 
 # In-memory storage for scan results (replace with database in production)
 scan_results = []
@@ -21,6 +22,27 @@ def health_check():
 @app.route('/results')
 def results():
     return jsonify(scan_results)
+
+# Simple authentication endpoints for hardcoded credentials
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    if username == "iQube" and password == "iQube@#2025":
+        return jsonify({"success": True, "user": {"username": "iQube"}})
+    else:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+@app.route('/user')
+def current_user():
+    # For hardcoded auth, just return the user info
+    return jsonify({"username": "iQube"})
+
+@app.route('/logout')
+def logout():
+    return jsonify({"message": "Logged out successfully"})
 
 @app.route('/scan', methods=['POST'])
 def scan():
@@ -58,6 +80,9 @@ def scan():
     except Exception as e:
         print(f"Scan error: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)

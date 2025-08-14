@@ -3,3 +3,5 @@ Flask-Cors
 SQLAlchemy
 psycopg2-binary
 asyncpg
+requests
+PyJWT
